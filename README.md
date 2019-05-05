@@ -8,6 +8,8 @@ Some worthy notes:
 
  - the Raspberry Pi's already have OpenCV installed (running OpenCV version 3.2)
 
+ - The PiCam does not by default play nicely with the OpenCV VideoCapture class that is used to do the live calibration (see `aa241x_vision` for information on the library being used to read from the camera).  **Therefore it is recommended that you do the calibration by taking pictures of the calibration pattern (the circles one is in skilling, though feel free to print out and use the chesseboard instead) and using that method for the calibration script**.  If you want a fun challenge that will give you a really good handle on how the PiCam interfaces with OpenCV in C++, it is possible to modify the camera calibration script to use the RaspiCam library (but not required!)
+
 
 ## Getting the Code ##
 
