@@ -3,6 +3,20 @@
 using namespace cv;
 using namespace std;
 
+DR_Calibration::DR_Calibration(const std::string& imgsDirector,
+	const std::string& outputFilename,
+	Size boardSize,
+	double squareSize,
+	Pattern CHESSBOARD
+)
+{
+	this->imgsDirectory = imgsDirector;
+	this->outputFilename = outputFilename;
+	this->boardSize = boardSize;
+	this->squareSize = squareSize;
+	this->pattern = CHESSBOARD;
+}
+
 double DR_Calibration::computeReprojectionErrors(
 	const vector<vector<Point3f> >& objectPoints,
 	const vector<vector<Point2f> >& imagePoints,
@@ -56,28 +70,6 @@ void DR_Calibration::calcChessboardCorners(Size boardSize, float squareSize,
 	}
 }
 
-
-void DR_Calibration::createCalibBoard(string fileDir)
-{
-	Mat img(2592, 2048, CV_8UC1, Scalar::all(0));//³õÊ¼»¯img¾ØÕó£¬È«ºÚ
-
-	int cube = 360;
-	for (int j = 0; j < img.rows; j++)
-	{
-		uchar *data = img.ptr<uchar>(j);
-		for (int i = 0; i < img.cols; i += 1)
-		{
-			if ((i / cube + j / cube) % 2)//·ûºÏ´Ë¹æÂÉµÄÏñËØ£¬ÖÃ255
-			{
-				data[i] = 255;
-			}
-		}
-	}
-	imshow("img", img);
-	imwrite(fileDir, img);//±£´æÍ¼Æ¬µ½Ä¬ÈÏÂ·¾¶
-	waitKey(0);
-}
-
 bool DR_Calibration::runCalibration(vector<vector<Point2f> > imagePoints,
 	Size imageSize, Size boardSize, Pattern patternType,
 	float squareSize, float aspectRatio,
@@ -86,8 +78,6 @@ bool DR_Calibration::runCalibration(vector<vector<Point2f> > imagePoints,
 	vector<float>& reprojErrs,
 	double& totalAvgErr)
 {
-	double rms;
-
 	cameraMatrix = Mat::eye(3, 3, CV_64F);
 	if (flags & CALIB_FIX_ASPECT_RATIO)
 		cameraMatrix.at<double>(0, 0) = aspectRatio;
@@ -99,17 +89,9 @@ bool DR_Calibration::runCalibration(vector<vector<Point2f> > imagePoints,
 
 	objectPoints.resize(imagePoints.size(), objectPoints[0]);
 
-
-	rms = calibrateCamera(objectPoints, imagePoints, imageSize, cameraMatrix,
-		distCoeffs, rvecs, tvecs, flags);
-
-	//double rms = calibrateCamera(objectPoints, imagePoints, imageSize, cameraMatrix,
-	//	distCoeffs, rvecs, tvecs, CALIB_USE_INTRINSIC_GUESS);
-
+	double rms = calibrateCamera(objectPoints, imagePoints, imageSize, cameraMatrix,
+		distCoeffs, rvecs, tvecs, flags | CALIB_FIX_K4 | CALIB_FIX_K5);
 	///*|CALIB_FIX_K3*/|CALIB_FIX_K4|CALIB_FIX_K5);
-
-	cout << "ÄÚ²Î¾ØÕó:" << endl << cameraMatrix << endl;
-
 	printf("RMS error reported by calibrateCamera: %g\n", rms);
 
 	bool ok = checkRange(cameraMatrix) && checkRange(distCoeffs);
@@ -177,6 +159,10 @@ void DR_Calibration::saveCameraParams(const string& filename,
 	if (!reprojErrs.empty())
 		fs << "per_view_reprojection_errors" << Mat(reprojErrs);
 
+	//// å¢žåŠ æ—‹è½¬ã€å¹³ç§»
+	//fs << "rvecs" << rvecs;
+	//fs << "distortion_coefficients" << distCoeffs;
+
 	if (!rvecs.empty() && !tvecs.empty())
 	{
 		CV_Assert(rvecs[0].type() == tvecs[0].type());
@@ -190,25 +176,19 @@ void DR_Calibration::saveCameraParams(const string& filename,
 			CV_Assert(rvecs[i].rows == 3 && rvecs[i].cols == 1);
 			CV_Assert(tvecs[i].rows == 3 && tvecs[i].cols == 1);
 			//*.t() is MatExpr (not Mat) so we can use assignment operator
-			r = rvecs[i].t();	// Ðý×ªÏòÁ¿ -> Rodrigues±ä»» -> Ðý×ª¾ØÕó  
-			t = tvecs[i].t();	// Ðý×ª¾ØÕó
+			r = rvecs[i].t();	// æ—‹è½¬å‘é‡ -> Rodrigueså˜æ¢ -> æ—‹è½¬çŸ©é˜µ  
+			t = tvecs[i].t();	// æ—‹è½¬çŸ©é˜µ
 
-			Mat R;
-
-			cv::Rodrigues(rvecs[i], R);
-
-			fs << "extrinsic_R" + to_string(i) << R;
-
-			fs << "extrinsic_T" + to_string(i) << tvecs[i];
-
+			//Mat r_matrix;
+			//cv::Rodrigues(r, r_matrix);
 		}
-
-		fs << "extrinsic" << bigmat;
+		//cvWriteComment( *fs, "a set of 6-tuples (rotation vector + translation vector) for each view", 0 );
+		fs << "extrinsic_parameters" << bigmat;
 
 		std::swap(bigmat, extrinsicsBigMat);
 	}
 
-	/////  0731 ´æ´¢¼ì²âÆåÅÌ½á¹û  1  ³É¹¦£¬ 0  Ê§°Ü  ==¡· ¶ÔÓ¦1µÄ²Ë¶ÁÈ¡»úÐµÊÖ×ËÌ¬Êý¾Ý
+	/////  0731 å­˜å‚¨æ£€æµ‹æ£‹ç›˜ç»“æžœ  1  æˆåŠŸï¼Œ 0  å¤±è´¥  ==ã€‹ å¯¹åº”1çš„èœè¯»å–æœºæ¢°æ‰‹å§¿æ€æ•°æ®
 	Mat matFoundCheeseBoard(1, foundCheeseBoardVec.size(), CV_32S, foundCheeseBoardVec.data());
 	fs << "found_cheese_board" << matFoundCheeseBoard;
 
@@ -273,25 +253,35 @@ bool DR_Calibration::readCameraParameters(const std::string & filename, cv::Mat 
 	return true;
 }
 
-bool DR_Calibration::doCalibration()
+bool DR_Calibration::doCalibration(imageExt ext)
 {
-
 	vector<String> imageList;
-	std::string path = _imgsDir;
+	std::string path = this->imgsDirectory;
 
 	try
 	{
-		cv::glob(path, imageList);
+		switch (ext)
+		{
+		case DR_Calibration::JPG:
+			cv::glob(path + "/*.jpg", imageList);
+			break;
+		case DR_Calibration::PNG:
+			cv::glob(path + "/*.png", imageList);
+			break;
+		case DR_Calibration::BMP:
+			cv::glob(path + "/*.bmp", imageList);
+			break;
+		default:
+			break;
+		}
 	}
 	catch (const std::exception&)
 	{
 		std::cout << "read calibration image error!\n";
-		return false;
 	}
 
 	if (imageList.size() == 0) {
 		std::cout << "no images." << std::endl;	return false;
-		return false;
 	}
 
 	int nframes = (int)imageList.size();
@@ -299,17 +289,18 @@ bool DR_Calibration::doCalibration()
 	this->foundCheeseBoardVec.resize(nframes);
 
 	if (showUndistorted) {
-		resizeWindow("Image View", { imageSize.width,imageSize.height });
+		//namedWindow("Image View", 1);
+		resizeWindow("Image View", { 640,480 });
 	}
 
 	std::cout << "Process: ... ... ";
-	for (int i = 0;; i++) 
+	for (int i = 0;; i++)
 	{
-		Mat view;
+		Mat view, viewGray;
 
 		std::cout << "\n";
 		if (i < (int)imageList.size()) {
-			std::cout << i << "  " << imageList[i];
+			std::cout << "  " << imageList[i];
 			view = imread(imageList[i], 1);
 		}
 
@@ -317,89 +308,63 @@ bool DR_Calibration::doCalibration()
 		{
 			std::cout << "Calculating ... ...\n";
 			if (imagePoints.size() > 0)
-				runAndSave(_outputFilename, imagePoints, imageSize,
-					_boardSize, _pattern, _squareSize, _aspectRatio,
+				runAndSave(outputFilename, imagePoints, imageSize,
+					boardSize, pattern, squareSize, aspectRatio,
 					flags, cameraMatrix, distCoeffs,
 					writeExtrinsics, writePoints);
 			break;
 		}
 		imageSize = view.size();
-		if (view.channels() == 3) 
-		{
-			cvtColor(view, view, COLOR_BGR2GRAY);
-		}
-		if (flipVertical)	
-			flip(view, view, 0);
 
-		vector<Point2f> pointbuf;	//½Çµã
+		if (flipVertical)	flip(view, view, 0);
+		vector<Point2f> pointbuf;
+		cvtColor(view, viewGray, COLOR_BGR2GRAY);
+		SimpleBlobDetector::Params params;
+		Ptr<FeatureDetector> blobDetector = SimpleBlobDetector::create(params);
 
-		bool isFound;
-		switch (_pattern)
-		{
+		//bool found = findChessboardCorners(view, boardSize, pointbuf,
+		//	CALIB_CB_ADAPTIVE_THRESH | CALIB_CB_FAST_CHECK | CALIB_CB_NORMALIZE_IMAGE);
 
-		case DR_Calibration::CHESSBOARD:
-			isFound = findChessboardCorners(view, _boardSize, pointbuf,
-				CALIB_CB_ADAPTIVE_THRESH | CALIB_CB_FAST_CHECK | CALIB_CB_NORMALIZE_IMAGE);
-			break;
+		bool found = findCirclesGrid(view, boardSize, pointbuf, pattern| CALIB_CB_CLUSTERING, blobDetector);
 
-		case DR_Calibration::CIRCLES_GRID:					//¶Ô³Æ
-			isFound = findCirclesGrid(view, _boardSize, pointbuf, CALIB_CB_SYMMETRIC_GRID);
-			break;
-
-		case DR_Calibration::ASYMMETRIC_CIRCLES_GRID:		//²»¶Ô³Æ
-			//cv::bitwise_not(view, view);	//·´×ªÍ¼Æ¬ÑÕÉ«
-			isFound = findCirclesGrid(view, _boardSize, pointbuf, CALIB_CB_ASYMMETRIC_GRID);
-			break;
-
-		default:
-			break;
-		}
-
-		if (isFound)
-			cornerSubPix(view, pointbuf, _boardSize, Size(-1, -1),
+		if (found)
+			cornerSubPix(viewGray, pointbuf, boardSize, Size(-1, -1),
 				TermCriteria(TermCriteria::EPS + TermCriteria::COUNT, 30, 0.1));
 
-		if (_mode == CALIBRATED && isFound) {
+		if (mode == CAPTURING && found) {
 			imagePoints.push_back(pointbuf);
 			cout << ", Success";
 			foundCheeseBoardVec[i] = 1;
 		}
 		else {
-			cout << ", Fail";
 			foundCheeseBoardVec[i] = 0;
 
 		}
 
-		if (isFound)	
-			drawChessboardCorners(view, _boardSize, Mat(pointbuf), isFound);
+		if (found)	drawChessboardCorners(view, boardSize, Mat(pointbuf), found);
 
-		string msg = _mode == CAPTURING ? "100/100" : _mode == CALIBRATED ? "Calibrated" : "Press 'g' to start";
+		string msg = mode == CAPTURING ? "100/100" : mode == CALIBRATED ? "Calibrated" : "Press 'g' to start";
 		int baseLine = 0;
 		Size textSize = getTextSize(msg, 1, 1, 1, &baseLine);
 		Point textOrigin(view.cols - 2 * textSize.width - 10, view.rows - 2 * baseLine - 10);
 
-		putText(view, format("%d/%d", (int)imagePoints.size(), nframes), textOrigin, 1, 1, _mode == CALIBRATED ? Scalar(0, 0, 255) : Scalar(0, 255, 0));
-		
-		if (_saveResImg)
-		{
-			imwrite(_imgsDir + std::to_string(i) + ".png", view);//±£´æÍ¼Æ¬µ½Ä¬ÈÏÂ·¾¶
-		}
+		putText(view, format("%d/%d", (int)imagePoints.size(), nframes),
+			textOrigin, 1, 1,
+			mode != CALIBRATED ? Scalar(0, 0, 255) : Scalar(0, 255, 0));
 
-		cv::resize(view, view, cv::Size(imageSize.width / 3, imageSize.height / 3));
-		//cv::moveWindow("Running Calibration", 0, 0);
+		imshow("Running DR_Calibration", view);
 
-		imshow("Running Calibration", view);
 		if (waitKey(300) == 27)	break;
 
-		if (_mode == CAPTURING && imagePoints.size() > (unsigned)nframes)
+		if (mode == CAPTURING && imagePoints.size() > (unsigned)nframes)
 		{
-			if (runAndSave(_outputFilename, imagePoints, imageSize,
-				_boardSize, _pattern, _squareSize, _aspectRatio,
+			if (runAndSave(outputFilename, imagePoints, imageSize,
+				boardSize, pattern, squareSize, aspectRatio,
 				flags, cameraMatrix, distCoeffs,
 				writeExtrinsics, writePoints))
-				_mode = CALIBRATED;
+				mode = CALIBRATED;
 			else
-				_mode = DETECTION;
+				mode = DETECTION;
 		}
 	}
 
@@ -429,6 +394,7 @@ bool DR_Calibration::doCalibration()
 	cv::destroyAllWindows();
 	return true;
 }
+
 
 // Get Method
 cv::Mat DR_Calibration::getExtrinsicsBigMat() const
